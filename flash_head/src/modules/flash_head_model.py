@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -33,26 +34,30 @@ except ModuleNotFoundError:
     SAGE_ATTN_AVAILABLE = False
     
     
+# FH_ATTN=SDPA|SAGE|FA3|FA2 forces the single-GPU attention kernel, for benchmarking (unset = first available)
+FORCED_ATTN = os.environ.get("FH_ATTN", "").upper()
+
+
 def flash_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, num_heads: int, compatibility_mode=False):
-    if compatibility_mode:
+    if compatibility_mode or FORCED_ATTN == "SDPA":
         q = rearrange(q, "b s (n d) -> b n s d", n=num_heads)
         k = rearrange(k, "b s (n d) -> b n s d", n=num_heads)
         v = rearrange(v, "b s (n d) -> b n s d", n=num_heads)
         x = F.scaled_dot_product_attention(q, k, v)
         x = rearrange(x, "b n s d -> b s (n d)", n=num_heads)
-    elif SAGE_ATTN_AVAILABLE:
+    elif SAGE_ATTN_AVAILABLE and FORCED_ATTN in ("", "SAGE"):
         q = rearrange(q, "b s (n d) -> b n s d", n=num_heads)
         k = rearrange(k, "b s (n d) -> b n s d", n=num_heads)
         v = rearrange(v, "b s (n d) -> b n s d", n=num_heads)
         x = sageattn(q, k, v)
         x = rearrange(x, "b n s d -> b s (n d)", n=num_heads)
-    elif FLASH_ATTN_3_AVAILABLE:
+    elif FLASH_ATTN_3_AVAILABLE and FORCED_ATTN in ("", "FA3"):
         q = rearrange(q, "b s (n d) -> b s n d", n=num_heads)
         k = rearrange(k, "b s (n d) -> b s n d", n=num_heads)
         v = rearrange(v, "b s (n d) -> b s n d", n=num_heads)
         x = flash_attn_interface.flash_attn_func(q, k, v)
         x = rearrange(x, "b s n d -> b s (n d)", n=num_heads)
-    elif FLASH_ATTN_2_AVAILABLE:
+    elif FLASH_ATTN_2_AVAILABLE and FORCED_ATTN in ("", "FA2"):
         q = rearrange(q, "b s (n d) -> b s n d", n=num_heads)
         k = rearrange(k, "b s (n d) -> b s n d", n=num_heads)
         v = rearrange(v, "b s (n d) -> b s n d", n=num_heads)
@@ -179,7 +184,10 @@ class SelfAttention(nn.Module):
 
         if self.use_usp:
             from yunchang.kernels import AttnType
-            if SAGE_ATTN_AVAILABLE:
+            # FH_USP_ATTN=<AttnType member name> overrides the kernel, for bisecting the 2-GPU crash
+            if os.environ.get("FH_USP_ATTN"):
+                attn_type = AttnType[os.environ["FH_USP_ATTN"]]
+            elif SAGE_ATTN_AVAILABLE:
                 attn_type = AttnType.SAGE_AUTO
             else:
                 attn_type = AttnType.FA

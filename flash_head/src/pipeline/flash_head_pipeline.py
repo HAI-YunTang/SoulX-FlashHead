@@ -16,10 +16,11 @@ from flash_head.utils.utils import match_and_blend_colors_torch, resize_and_cent
 from flash_head.utils.facecrop import process_image
 
 # compile models to speedup inference
-COMPILE_MODEL = True
-COMPILE_VAE = True
+# env overrides (FH_COMPILE_MODEL / FH_COMPILE_VAE / FH_PARALLEL_VAE=0|1) are for bisecting the 2-GPU crash
+COMPILE_MODEL = os.environ.get("FH_COMPILE_MODEL", "1") == "1"
+COMPILE_VAE = os.environ.get("FH_COMPILE_VAE", "1") == "1"
 # use parallel vae to speedup decode/encode, only support WanVAE
-USE_PARALLEL_VAE = True
+USE_PARALLEL_VAE = os.environ.get("FH_PARALLEL_VAE", "1") == "1"
 
 def get_cond_image_dict(cond_image_path_or_dir, use_face_crop):
     def get_image(cond_image_path, use_face_crop):
