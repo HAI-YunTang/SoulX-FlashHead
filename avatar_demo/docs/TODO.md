@@ -16,7 +16,7 @@
 ## Code
 
 - **SoulX-FlashHead fork** (`git@github.com:HAI-YunTang/SoulX-FlashHead.git`), branch `yuntang/nurse-avatar-demo`, in `avatar_demo/`. Pushed to the fork, so it can be checked out on another machine.
-- **Snow**, branch `yuntang/nurse-avatar-demo`: forwarder, page and tests. All commits are **local only**.
+- **Snow** (`hippocraticaidev/snow`), branch `yuntang/nurse-avatar-demo`: forwarder, page and tests. Pushed, with no PR yet (https://github.com/hippocraticaidev/snow/pull/new/yuntang/nurse-avatar-demo).
 
 ## Next tasks
 
