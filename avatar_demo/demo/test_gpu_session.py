@@ -254,6 +254,18 @@ class ListeningNodSessionTest(unittest.TestCase):
         warped, _ = self.drive(s, t, 1.0, speech)
         self.assertFalse(any(warped))
 
+    def test_a_nod_in_progress_continues_over_the_nurses_first_speech_frames(self):
+        s = self.make(True)
+        silent = np.zeros(640, dtype=np.float32)
+        speech = np.full(640, 0.2, dtype=np.float32)
+        s.listening_event("listen", True, 0.0)
+        _, t = self.drive(s, 0.0, 6.0, silent)
+        s.listening_event("pause", False, t)
+        warped, t = self.drive(s, t, 0.12, silent)  # the nod starts on idle frames
+        self.assertTrue(any(warped))
+        warped, _ = self.drive(s, t, 0.3, speech)  # her reply begins mid-nod
+        self.assertTrue(all(warped))  # finished smoothly, not snapped back
+
     def test_a_new_call_starts_a_fresh_turn(self):
         s = self.make(True)
         silent = np.zeros(640, dtype=np.float32)

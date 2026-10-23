@@ -141,10 +141,9 @@ class Session:
         """The frame to send at `now`: with the listening nod applied while one plays."""
         if self.nods is None:
             return frame
-        amount = self.nods.amount(now)
-        if amount <= 0.0 or (audio.size and float(np.abs(audio).max()) > SPEECH_PEAK):
-            return frame  # no nod on frames where the nurse is speaking
-        return self.nod_warp.apply(frame, amount)
+        nurse_speaking = bool(audio.size) and float(np.abs(audio).max()) > SPEECH_PEAK
+        amount = self.nods.amount(now, allow_start=not nurse_speaking)  # her voice never starts a nod
+        return self.nod_warp.apply(frame, amount) if amount > 0.0 else frame
 
     # --- client-driven state changes (called from the asyncio thread) ---
     def push_speech(self, pcm: np.ndarray) -> None:

@@ -112,8 +112,7 @@ class NodScheduler:
         self._advance(now)
         self.agent_speaking = on
         if on:
-            self._reset_turn()  # the nurse replies: a new patient turn comes next
-            self.nod_start = None
+            self._reset_turn()  # the nurse replies: a new patient turn comes next (a nod in progress finishes)
 
     def flush(self, now: float) -> None:
         self._advance(now)
@@ -122,7 +121,9 @@ class NodScheduler:
 
     # --- per sent frame ---
     def _advance(self, now: float) -> None:
-        if self.last_t is not None and self.listening:
+        # Not while the nurse speaks: VAD also hears her voice echoing into the patient's mic, which would
+        # open the gate before the patient has said anything.
+        if self.last_t is not None and self.listening and not self.agent_speaking:
             self.speech_s += max(0.0, now - self.last_t)
             if self.gate_open_t is None and self._gate_open():
                 self.gate_open_t = now
@@ -131,15 +132,17 @@ class NodScheduler:
             self._reset_turn()
             self.silent_since = None
 
-    def amount(self, now: float) -> float:
-        """Nod amount 0..1 for the frame sent at `now`; starts a nod when one is due."""
+    def amount(self, now: float, allow_start: bool = True) -> float:
+        """Nod amount 0..1 for the frame sent at `now`. A nod in progress always finishes (cutting it off
+        would snap the head back); a new one starts only when due and `allow_start` (not on frames that
+        carry the nurse's voice)."""
         self._advance(now)
         if self.nod_start is not None:
             a = nod_curve(now - self.nod_start)
             if now - self.nod_start >= NOD_S:
                 self.nod_start = None
             return a
-        if self._due(now):
+        if allow_start and self._due(now):
             self.nod_start = now
             self.last_nod_t = now
             self.pause_pending = False

@@ -118,6 +118,39 @@ class NodSchedulerTest(unittest.TestCase):
         self.assertEqual(len(sim.nods), 1)
 
 
+class NodSchedulerEchoAndFinishTest(unittest.TestCase):
+    def test_nurse_voice_echo_does_not_count_as_patient_speech(self):
+        sim = Sim()
+        sim.s.set_agent_speaking(True, sim.t)
+        sim.talk(12.0)  # VAD hears her long reply through the patient's mic
+        sim.s.set_agent_speaking(False, sim.t)
+        sim.stop(0.5)
+        sim.talk(1.5)  # then the patient says "yes"
+        sim.stop(3.0)
+        self.assertEqual(sim.nods, [])
+
+    def test_a_started_nod_finishes_when_the_nurse_starts_speaking(self):
+        sim = Sim()
+        sim.talk(6.0)
+        sim.s.pause(sim.t)
+        sim.run(0.2)  # the nod is underway
+        self.assertEqual(len(sim.nods), 1)
+        sim.s.set_agent_speaking(True, sim.t)
+        amounts = [sim.s.amount(sim.t + i * TICK) for i in range(1, 20)]
+        self.assertGreater(amounts[0], 0.0)  # no snap back: it keeps going...
+        self.assertEqual(amounts[-1], 0.0)  # ...and ends on its curve
+        self.assertTrue(all(abs(b - a) < 0.25 for a, b in zip(amounts, amounts[1:])), amounts)
+
+    def test_allow_start_false_never_starts_but_continues(self):
+        s = NodScheduler(rng=random.Random(0))
+        s.set_listening(True, 0.0)
+        s.amount(6.0)
+        s.pause(6.0)
+        self.assertEqual(s.amount(6.04, allow_start=False), 0.0)  # a speech frame: no start
+        s.amount(6.08)  # starts here
+        self.assertGreater(s.amount(6.2, allow_start=False), 0.0)  # and continues on speech frames
+
+
 class NodWarpTest(unittest.TestCase):
     def setUp(self):
         self.w = NodWarp(px=5.0)
