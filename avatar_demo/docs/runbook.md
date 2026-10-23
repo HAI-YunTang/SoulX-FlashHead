@@ -38,10 +38,10 @@ Everything for the demo lives in the SoulX-FlashHead fork (`git@github.com:HAI-Y
 | SkyPilot configs | `avatar_demo/configs/`: `skypilot_avatar_h200_cw_usw4_speech.yaml` (current), `skypilot_avatar_2gpu_rtxp6000_use15.yaml`, `skypilot_avatar_h200_do_atl1.yaml` |
 | Local ops scripts | `avatar_demo/ops/`: `start_services.sh` (Postgres, Redis), `start_snow.sh`, `gpu_tunnel.sh` (watchdog), `net_probe.sh`, `demo_settings.sh`, `avatar_demo/ops/demo_url.txt`. Logs go to `avatar_demo/ops/logs/` (git-ignored). |
 | DB snapshot of the demo rows | `avatar_demo/ops/demo_settings/` (git-ignored: it holds a test patient record) |
-| Docs | `avatar_demo/docs/`: this runbook, `network_and_frame_drops.md`, `demo_system.html`, `container_packages.md` |
+| Docs | `avatar_demo/docs/`: this runbook, `TODO.md` (state and next tasks), `demo_system.html` (system description), `network_and_frame_drops.md`, `container_packages.md` and `container_request.md` (the devbox), plus history: `task_integrate.md` (the original brief), `plan.md`, `pro_2gpu_working_config_benchmark.md` |
 | FlashHead change | `flash_head/src/modules/flash_head_model.py`, `flash_head/src/pipeline/flash_head_pipeline.py`: the `FH_*` switches |
 | Snow changes (snow repo, branch `yuntang/nurse-avatar-demo`) | `devtools/avatar_forwarder.py`, `devtools/snow_devtools_main.py`; page: `demo_portal/src/services/AvatarPlayer.ts` (+ test), `views/call_dev/AvatarPanel.tsx`, hooks in `CallManager.ts`, `AudioHandler.ts`, `CallDevDialerView.tsx`; `public/avatar/nurse.png`, `nurse_idle.mp4` |
-| Notes, results, idle-clip frames | the old work dir `/home/works/2026/video_avatar/20261021_soulX-FlashHead` (`TODO.md`, `plan.md`, `results/`) |
+| Results and idle-clip frames (not in git) | the old work dir `/home/works/2026/video_avatar/20261021_soulX-FlashHead/results/` on the devbox |
 
 ## Demo defaults
 
