@@ -1,0 +1,112 @@
+# Nurse avatar demo: FlashHead Pro GPU server on 1x H200, on the reserved cw-usw4 speech node
+# gd942bc (hai-cw-usw4-cks-speech). Same setup/run as skypilot_avatar_h200_do_atl1.yaml; only the
+# resources and the pod scheduling differ.
+#
+# The node carries label + NoSchedule taint hai/reserved=yuntang-sa; the nodeSelector and the
+# toleration below pin the pod to it. Remove both from the node when done:
+#   kubectl --context hai-cw-usw4-cks taint node gd942bc hai/reserved-
+#   kubectl --context hai-cw-usw4-cks label node gd942bc hai/reserved-
+# The node template's R2 mount, /hai PVC and rclone setup are left out: the avatar doesn't use them.
+#
+# Launch (from the SoulX-FlashHead repo root) with the speech workspace:
+#   source /home/source_codes/skypilot-infra/.venv/bin/activate
+#   sky launch -c yuntang-avatar-h200 --config active_workspace=speech \
+#     avatar_demo/configs/skypilot_avatar_h200_cw_usw4_speech.yaml --workdir . -y -d
+
+name: avatar-h200-usw4
+
+resources:
+  infra: k8s/hai-cw-usw4-cks-speech
+  accelerators: H200:1
+  image_id: ubuntu:22.04
+  # Without these SkyPilot defaults to 4 CPUs / 16 GB, too small for FlashHead's load and compile.
+  cpus: 16+
+  memory: 64+
+
+num_nodes: 1
+
+workdir: .
+
+file_mounts:
+  /opt/flashhead_extra/ltx_models: /home/source_codes/SoulX-FlashHead/flash_head/ltx_video/models
+  /opt/flashhead_extra/examples: /home/source_codes/SoulX-FlashHead/examples
+
+envs:
+  MODELS_DIR: /scratch/models
+  MODEL_TYPE: pro
+  COND_IMAGE: avatar_demo/figures/nurse_image3.png  # relative to ~/sky_workdir (the repo)
+  GPU_SERVER_PORT: "8766"
+  AVATAR_JPEG_QUALITY: "70"
+  # Live idle motion between replies (the H200 renders at 1.45x real time); 0 turns it off.
+  # The target must exceed one chunk's render time (0.77 s) or idle playback runs dry (0.5 gave
+  # 21.8 fps); a reply keeps only AVATAR_IDLE_KEEP_S of queued idle ahead of it.
+  AVATAR_IDLE_TARGET_S: "1.0"
+  AVATAR_IDLE_KEEP_S: "0.25"
+
+setup: |
+  set -e
+  apt-get update && apt-get install -y python3 python3-pip python3-venv python3-dev \
+    build-essential ffmpeg git libgl1 libglib2.0-0
+  python3 -m venv /opt/venv
+  source /opt/venv/bin/activate
+  pip install -U pip uv
+  uv pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu128
+  # requirements.txt pins nvidia-nccl-cu12==2.27.3, which conflicts with torch 2.7.1. Drop it here;
+  # 2.27.3 is installed separately below and preloaded at run time.
+  grep -v '^nvidia-nccl' ~/sky_workdir/requirements.txt > /opt/req_filtered.txt
+  uv pip install -r /opt/req_filtered.txt "huggingface_hub[cli]" websockets
+  # Step 1: xfuser 0.4.3 (0.7.0 imports update_npu_out, which yunchang 0.6.4 lacks).
+  uv pip install xfuser==0.4.3
+  # Fast attention (report section 4, item 3). FlashHead's 1-GPU path tries Sage, then FA3, then FA2,
+  # then torch SDPA; FH_ATTN=SDPA|SAGE|FA2|FA3 forces one. sageattention 1.0.6 is Triton (no nvcc).
+  # flash-attn: `pip install flash-attn` needs nvcc/CUDA_HOME even to fetch its prebuilt wheel, and the pod
+  # image has neither, so install the release wheel directly (torch 2.7, cu12, cp310; 2.7.4.post1 because diffusers needs <=2.8.0). Verified on H200;
+  # its kernels target sm80/sm90, so on Blackwell (sm_120) the import may work but the kernel may not.
+  uv pip install sageattention==1.0.6 || echo "WARN: sageattention install failed"
+  FA_ABI=$(python -c "import torch; print(str(torch._C._GLIBCXX_USE_CXX11_ABI).upper())")
+  uv pip install "https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abi${FA_ABI}-cp310-cp310-linux_x86_64.whl" \
+    || echo "WARN: flash-attn install failed"
+  # Step 2: NCCL 2.27.3 outside the venv, for LD_PRELOAD.
+  pip install --no-deps --target /root/nccl227 nvidia-nccl-cu12==2.27.3
+  ls /root/nccl227/nvidia/nccl/lib/libnccl.so.2
+  mkdir -p $MODELS_DIR
+  hf download Soul-AILab/SoulX-FlashHead-1_3B --local-dir $MODELS_DIR/SoulX-FlashHead-1_3B
+  hf download facebook/wav2vec2-base-960h --local-dir $MODELS_DIR/wav2vec2-base-960h
+  ln -sfn $MODELS_DIR ~/sky_workdir/models
+  # Step 3: the directories the workdir sync drops.
+  rm -rf ~/sky_workdir/flash_head/ltx_video/models ~/sky_workdir/examples
+  cp -r /opt/flashhead_extra/ltx_models ~/sky_workdir/flash_head/ltx_video/models
+  cp -r /opt/flashhead_extra/examples ~/sky_workdir/examples
+  python -c "import torch, importlib.metadata as m; print('torch', torch.__version__, 'xfuser', m.version('xfuser'))"
+
+config:
+  kubernetes:
+    # The node is reserved for us, so the pod should schedule at once; fail fast if it doesn't.
+    provision_timeout: 900
+    pod_config:
+      spec:
+        nodeSelector:
+          hai/reserved: yuntang-sa
+        tolerations:
+          - key: hai/reserved
+            operator: Equal
+            value: yuntang-sa
+            effect: NoSchedule
+          - key: workload/gpu
+            operator: Equal
+            value: "true"
+            effect: NoSchedule
+        containers:
+          - name: ray-node
+            volumeMounts:
+              - mountPath: /scratch
+                name: scratch
+        volumes:
+          - name: scratch
+            emptyDir: {}
+
+run: |
+  source /opt/venv/bin/activate
+  cd ~/sky_workdir
+  nvidia-smi --query-gpu=index,name,memory.total --format=csv
+  bash avatar_demo/demo/start_gpu_server.sh  # the demo code comes with the workdir sync

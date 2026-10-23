@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Nurse avatar video-call demo: system description</title>
+<style>
+  :root { --ink:#1f2933; --muted:#5f6b7a; --line:#cbd2d9; --bg:#ffffff; --panel:#f5f7fa;
+          --mac:#e8f1fb; --mac-b:#3b82c4; --box:#eef7ee; --box-b:#3f8f4f; --gpu:#fdf2e6; --gpu-b:#c77d2a;
+          --cloud:#f3eefb; --cloud-b:#7a5cb8; }
+  body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+         color: var(--ink); background: var(--bg); margin: 0; }
+  main { max-width: 1120px; margin: 0 auto; padding: 32px 28px 64px; }
+  h1 { font-size: 28px; margin: 0 0 6px; }
+  h2 { font-size: 21px; margin: 40px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .sub { color: var(--muted); margin: 0 0 18px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0 6px; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 6px 9px; text-align: left; vertical-align: top; }
+  th { background: var(--panel); }
+  code { font: 13px/1.4 SFMono-Regular, Menlo, Consolas, monospace; background: var(--panel);
+         padding: 1px 4px; border-radius: 3px; }
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0 4px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+  .card b { display: block; font-size: 22px; }
+  .card span { color: var(--muted); font-size: 13px; }
+  figure { margin: 14px 0 4px; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+  figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  svg text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  ol li, ul li { margin: 3px 0; }
+  .note { background: #fff8e6; border-left: 4px solid #e0a526; padding: 8px 12px; margin: 12px 0; font-size: 14px; }
+  @media print { main { max-width: none; } h2 { break-after: avoid; } figure, table { break-inside: avoid; } }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Nurse avatar video-call demo</h1>
+<p class="sub">System description, 2026-10-22. A patient on a Mac video-calls an AI nurse: snow runs the conversation,
+and SoulX-FlashHead renders the nurse's face lip-synced to her voice on a cloud GPU.</p>
+
+<div class="cards">
+  <div class="card"><b>~25 fps</b><span>live 512×512 avatar video, continuous for the whole call</span></div>
+  <div class="card"><b>1.5 s</b><span>median from the patient's final transcript to the reply's TTS</span></div>
+  <div class="card"><b>~2.2 s</b><span>reply TTS start to the first avatar frame (H200, through the tunnel)</span></div>
+  <div class="card"><b>1.45×</b><span>H200 render speed vs real time: headroom for live idle motion</span></div>
+</div>
+
+<h2>1. What the demo does</h2>
+<ul>
+  <li>The patient opens the demo page on the Mac and starts a <b>VOIP call</b> with the nurse agent ("Stacy", CHF discharge script).</li>
+  <li>Snow handles the conversation: <b>voice activity detection, speech recognition, the agent (LLM plus safety engines), and TTS</b>.</li>
+  <li>The nurse's TTS audio is streamed to a GPU server running <b>FlashHead Pro</b>, which turns a still image of the nurse
+      (<code>figures/nurse_image3.png</code>) into talking-head video, frame by frame, in real time.</li>
+  <li>Each video frame travels back with its own 40 ms of audio, so the browser plays voice and lips in sync.</li>
+  <li>Between replies the GPU keeps rendering <b>idle motion from silent audio</b> (head sway, blinks), so the nurse never freezes or jumps.</li>
+</ul>
+
+<h2>2. Pipeline</h2>
+<figure>
+<svg viewBox="0 0 1100 690" width="100%" role="img" aria-label="Pipeline flow chart">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#3e4c59"/></marker>
+    <marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#3b82c4"/></marker>
+    <marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#c77d2a"/></marker>
+    <marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#7a5cb8"/></marker>
+  </defs>
+
+  <!-- lanes -->
+  <rect x="10" y="10" width="270" height="520" rx="10" fill="#e8f1fb" stroke="#3b82c4"/>
+  <text x="145" y="34" text-anchor="middle" font-size="15" font-weight="700" fill="#1d4f80">Mac (patient)</text>
+  <text x="145" y="52" text-anchor="middle" font-size="12" fill="#1d4f80">Chrome · /dev/call?avatar=1</text>
+
+  <rect x="310" y="10" width="420" height="520" rx="10" fill="#eef7ee" stroke="#3f8f4f"/>
+  <text x="520" y="34" text-anchor="middle" font-size="15" font-weight="700" fill="#24592f">Devbox container (Docker, host network, in Colima VM)</text>
+  <text x="520" y="52" text-anchor="middle" font-size="12" fill="#24592f">local snow · Postgres · Redis</text>
+
+  <rect x="760" y="10" width="330" height="520" rx="10" fill="#fdf2e6" stroke="#c77d2a"/>
+  <text x="925" y="34" text-anchor="middle" font-size="15" font-weight="700" fill="#7a4612">GPU pod (SkyPilot, 1× H200)</text>
+  <text x="925" y="52" text-anchor="middle" font-size="12" fill="#7a4612">yuntang-avatar-h200 · cw-usw4 speech node</text>
+
+  <!-- Mac boxes -->
+  <rect x="30" y="80" width="230" height="58" rx="7" fill="#fff" stroke="#3b82c4"/>
+  <text x="145" y="104" text-anchor="middle" font-size="13" font-weight="600">Microphone capture</text>
+  <text x="145" y="122" text-anchor="middle" font-size="12" fill="#52606d">patient speech → snow (VOIP)</text>
+
+  <rect x="30" y="250" width="230" height="74" rx="7" fill="#fff" stroke="#3b82c4"/>
+  <text x="145" y="272" text-anchor="middle" font-size="13" font-weight="600">AvatarPlayer</text>
+  <text x="145" y="290" text-anchor="middle" font-size="12" fill="#52606d">decode JPEG · schedule 40 ms audio</text>
+  <text x="145" y="306" text-anchor="middle" font-size="12" fill="#52606d">draw frame when its audio plays</text>
+  <text x="145" y="320" text-anchor="middle" font-size="11" fill="#52606d">500 ms jitter buffer</text>
+
+  <rect x="30" y="370" width="230" height="86" rx="7" fill="#fff" stroke="#3b82c4"/>
+  <text x="145" y="392" text-anchor="middle" font-size="13" font-weight="600">AvatarPanel (what the patient sees)</text>
+  <text x="145" y="410" text-anchor="middle" font-size="12" fill="#52606d">live canvas while frames flow</text>
+  <text x="145" y="426" text-anchor="middle" font-size="12" fill="#52606d">idle clip only as fallback</text>
+  <text x="145" y="442" text-anchor="middle" font-size="12" fill="#52606d">caption: Speaking / Listening</text>
+
+  <rect x="30" y="470" width="230" height="46" rx="7" fill="#fff" stroke="#3b82c4" stroke-dasharray="4 3"/>
+  <text x="145" y="490" text-anchor="middle" font-size="12" font-weight="600">snow's own agent voice</text>
+  <text x="145" y="506" text-anchor="middle" font-size="11" fill="#52606d">muted, delayed 2.55 s; used if GPU link is down</text>
+
+  <!-- snow boxes -->
+  <rect x="330" y="80" width="170" height="44" rx="7" fill="#fff" stroke="#3f8f4f"/>
+  <text x="415" y="100" text-anchor="middle" font-size="13" font-weight="600">VAD</text>
+  <text x="415" y="116" text-anchor="middle" font-size="11" fill="#52606d">turn-taking, barge-in</text>
+
+  <rect x="330" y="146" width="170" height="44" rx="7" fill="#fff" stroke="#3f8f4f"/>
+  <text x="415" y="166" text-anchor="middle" font-size="13" font-weight="600">ASR</text>
+  <text x="415" y="182" text-anchor="middle" font-size="11" fill="#52606d">context-aware ASR v3</text>
+
+  <rect x="330" y="212" width="170" height="52" rx="7" fill="#fff" stroke="#3f8f4f"/>
+  <text x="415" y="232" text-anchor="middle" font-size="13" font-weight="600">Agent</text>
+  <text x="415" y="248" text-anchor="middle" font-size="11" fill="#52606d">LLM + safety engines</text>
+  <text x="415" y="260" text-anchor="middle" font-size="10" fill="#52606d">(RedTeam, pause, DOB …)</text>
+
+  <rect x="330" y="286" width="170" height="44" rx="7" fill="#fff" stroke="#3f8f4f"/>
+  <text x="415" y="306" text-anchor="middle" font-size="13" font-weight="600">TTS</text>
+  <text x="415" y="322" text-anchor="middle" font-size="11" fill="#52606d">ElevenLabs eleven_v3_conversational</text>
+
+  <rect x="540" y="250" width="170" height="104" rx="7" fill="#fff" stroke="#3f8f4f" stroke-width="2"/>
+  <text x="625" y="272" text-anchor="middle" font-size="13" font-weight="700">avatar_forwarder</text>
+  <text x="625" y="290" text-anchor="middle" font-size="11" fill="#52606d">44.1 → 16 kHz PCM</text>
+  <text x="625" y="305" text-anchor="middle" font-size="11" fill="#52606d">"end" after 1.0 s silence</text>
+  <text x="625" y="320" text-anchor="middle" font-size="11" fill="#52606d">"flush" on barge-in</text>
+  <text x="625" y="335" text-anchor="middle" font-size="11" fill="#52606d">reconnect · avatarstatus</text>
+  <text x="625" y="348" text-anchor="middle" font-size="10" fill="#52606d">devtools/avatar_forwarder.py</text>
+
+  <rect x="540" y="80" width="170" height="70" rx="7" fill="#fff" stroke="#3f8f4f"/>
+  <text x="625" y="100" text-anchor="middle" font-size="13" font-weight="600">snow_call :3000</text>
+  <text x="625" y="116" text-anchor="middle" font-size="11" fill="#52606d">socket.io call room</text>
+  <text x="625" y="130" text-anchor="middle" font-size="11" fill="#52606d">snow_web :4000 · Vite :5173</text>
+  <text x="625" y="144" text-anchor="middle" font-size="10" fill="#52606d">start_snow.sh</text>
+
+  <rect x="540" y="400" width="170" height="70" rx="7" fill="#fff" stroke="#3f8f4f" stroke-dasharray="4 3"/>
+  <text x="625" y="420" text-anchor="middle" font-size="12" font-weight="600">SSH tunnel :8767 → :8766</text>
+  <text x="625" y="436" text-anchor="middle" font-size="11" fill="#52606d">via SkyPilot proxy</text>
+  <text x="625" y="451" text-anchor="middle" font-size="11" fill="#52606d">gpu_tunnel.sh watchdog</text>
+  <text x="625" y="464" text-anchor="middle" font-size="10" fill="#52606d">reopens within ~2 s</text>
+
+  <!-- GPU boxes -->
+  <rect x="780" y="80" width="290" height="58" rx="7" fill="#fff" stroke="#c77d2a"/>
+  <text x="925" y="102" text-anchor="middle" font-size="13" font-weight="600">gpu_server :8766 (one client at a time)</text>
+  <text x="925" y="120" text-anchor="middle" font-size="11" fill="#52606d">start · speech PCM · end · flush</text>
+
+  <rect x="780" y="156" width="290" height="50" rx="7" fill="#fff" stroke="#c77d2a"/>
+  <text x="925" y="177" text-anchor="middle" font-size="13" font-weight="600">AudioChunker</text>
+  <text x="925" y="194" text-anchor="middle" font-size="11" fill="#52606d">1.12 s chunks (28 frames) · silence chunks when idle</text>
+
+  <rect x="780" y="224" width="290" height="66" rx="7" fill="#fff" stroke="#c77d2a" stroke-width="2"/>
+  <text x="925" y="246" text-anchor="middle" font-size="13" font-weight="700">FlashHead Pro</text>
+  <text x="925" y="263" text-anchor="middle" font-size="11" fill="#52606d">wav2vec2 audio features → DiT → VAE decode</text>
+  <text x="925" y="279" text-anchor="middle" font-size="11" fill="#52606d">SageAttention · 0.77 s per 1.12 s chunk</text>
+
+  <rect x="780" y="308" width="290" height="66" rx="7" fill="#fff" stroke="#c77d2a"/>
+  <text x="925" y="330" text-anchor="middle" font-size="13" font-weight="600">PlaybackBuffer (continuous)</text>
+  <text x="925" y="347" text-anchor="middle" font-size="11" fill="#52606d">keeps ~1 s of idle ahead · trims to 0.25 s</text>
+  <text x="925" y="362" text-anchor="middle" font-size="11" fill="#52606d">when a reply starts → no freeze, no lag</text>
+
+  <rect x="780" y="392" width="290" height="50" rx="7" fill="#fff" stroke="#c77d2a"/>
+  <text x="925" y="413" text-anchor="middle" font-size="13" font-weight="600">Sender, paced at 25 fps</text>
+  <text x="925" y="430" text-anchor="middle" font-size="11" fill="#52606d">JPEG q70 + 640 PCM samples per frame · 3.8 Mbit/s</text>
+
+  <!-- cloud -->
+  <rect x="310" y="560" width="780" height="118" rx="10" fill="#f3eefb" stroke="#7a5cb8"/>
+  <text x="700" y="582" text-anchor="middle" font-size="14" font-weight="700" fill="#4b2f8a">Cloud services (over Colima vzNAT → Mac → Tailscale; MTU 1280)</text>
+  <rect x="330" y="596" width="220" height="66" rx="7" fill="#fff" stroke="#7a5cb8"/>
+  <text x="440" y="618" text-anchor="middle" font-size="12" font-weight="600">Context-aware ASR v3</text>
+  <text x="440" y="636" text-anchor="middle" font-size="11" fill="#52606d">eval-api.model…/asrv3</text>
+  <rect x="570" y="596" width="240" height="66" rx="7" fill="#fff" stroke="#7a5cb8"/>
+  <text x="690" y="618" text-anchor="middle" font-size="12" font-weight="600">Model API (LLMs, safety engines)</text>
+  <text x="690" y="636" text-anchor="middle" font-size="11" fill="#52606d">api.model.hippocraticai.com</text>
+  <rect x="830" y="596" width="240" height="66" rx="7" fill="#fff" stroke="#7a5cb8"/>
+  <text x="950" y="618" text-anchor="middle" font-size="12" font-weight="600">ElevenLabs TTS</text>
+  <text x="950" y="636" text-anchor="middle" font-size="11" fill="#52606d">voice BzE3m5hwd6OqXT6Gg2Vg</text>
+
+  <!-- arrows: patient audio -->
+  <path d="M260,109 L330,102" stroke="#3b82c4" stroke-width="2" fill="none" marker-end="url(#ab)"/>
+  <text x="268" y="96" font-size="11" fill="#1d4f80">① mic audio</text>
+  <!-- snow internal -->
+  <path d="M415,124 L415,146" stroke="#3e4c59" stroke-width="1.6" marker-end="url(#a)"/>
+  <path d="M415,190 L415,212" stroke="#3e4c59" stroke-width="1.6" marker-end="url(#a)"/>
+  <path d="M415,264 L415,286" stroke="#3e4c59" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="422" y="141" font-size="10" fill="#52606d">②</text>
+  <text x="422" y="207" font-size="10" fill="#52606d">③ transcript</text>
+  <text x="422" y="281" font-size="10" fill="#52606d">④ reply text</text>
+  <!-- TTS to forwarder -->
+  <path d="M500,308 L540,300" stroke="#3e4c59" stroke-width="1.8" marker-end="url(#a)"/>
+  <text x="503" y="296" font-size="10" fill="#52606d">⑤</text>
+  <!-- forwarder to tunnel to gpu -->
+  <path d="M625,354 L625,400" stroke="#c77d2a" stroke-width="2" marker-end="url(#ao)"/>
+  <text x="632" y="380" font-size="11" fill="#7a4612">⑥ agent audio 16 kHz</text>
+  <path d="M710,420 L745,420 L745,109 L780,109" stroke="#c77d2a" stroke-width="2" fill="none" marker-end="url(#ao)"/>
+  <!-- gpu internal -->
+  <path d="M925,138 L925,156" stroke="#3e4c59" stroke-width="1.6" marker-end="url(#a)"/>
+  <path d="M925,206 L925,224" stroke="#3e4c59" stroke-width="1.6" marker-end="url(#a)"/>
+  <path d="M925,290 L925,308" stroke="#3e4c59" stroke-width="1.6" marker-end="url(#a)"/>
+  <path d="M925,374 L925,392" stroke="#3e4c59" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="932" y="219" font-size="10" fill="#52606d">⑦ render</text>
+  <!-- frames back -->
+  <path d="M780,430 L752,430 L752,500 L690,500 L690,470" stroke="#c77d2a" stroke-width="2.4" fill="none" marker-end="url(#ao)"/>
+  <text x="757" y="492" font-size="11" fill="#7a4612">⑧ frames</text>
+  <path d="M560,400 L560,380 L520,380 L520,287 L260,287" stroke="#3b82c4" stroke-width="2.4" fill="none" marker-end="url(#ab)"/>
+  <text x="300" y="281" font-size="11" fill="#1d4f80">⑨ socket.io "avatarframe"</text>
+  <path d="M145,324 L145,370" stroke="#3b82c4" stroke-width="1.8" marker-end="url(#ab)"/>
+  <!-- machinevoice muted -->
+  <path d="M540,140 L520,140 L520,492 L260,492" stroke="#7b8794" stroke-width="1.4" stroke-dasharray="5 4" fill="none" marker-end="url(#a)"/>
+  <text x="300" y="486" font-size="10" fill="#52606d">machinevoice (acks drive turn-taking)</text>
+  <!-- cloud arrows -->
+  <path d="M400,190 L400,596" stroke="#7a5cb8" stroke-width="1.3" stroke-dasharray="3 3" fill="none" marker-end="url(#ap)"/>
+  <path d="M470,264 C540,520 640,540 690,596" stroke="#7a5cb8" stroke-width="1.3" stroke-dasharray="3 3" fill="none" marker-end="url(#ap)"/>
+  <path d="M490,330 C700,520 900,540 950,596" stroke="#7a5cb8" stroke-width="1.3" stroke-dasharray="3 3" fill="none" marker-end="url(#ap)"/>
+</svg>
+<figcaption>Data flow for one reply, numbered ①–⑨. Orange: the avatar path through the GPU. Blue: what reaches the patient.
+Dashed purple: calls to cloud services. Dashed grey: snow's own copy of the agent voice, muted in avatar mode.</figcaption>
+</figure>
+
+<h3>Step by step</h3>
+<ol>
+  <li><b>Patient speaks.</b> The page streams microphone audio to snow_call over the VOIP socket.</li>
+  <li><b>VAD and ASR.</b> Snow detects the end of the patient's turn and transcribes it with context-aware ASR v3.</li>
+  <li><b>Agent.</b> The LLM writes the reply, while safety engines (RedTeam, pause detection, date-of-birth verification and others) run alongside.</li>
+  <li><b>TTS.</b> ElevenLabs synthesizes the reply in pieces (often clauses), each arriving as a fast burst of audio.</li>
+  <li><b>Forwarder.</b> <code>avatar_forwarder.py</code> taps snow's outgoing agent audio, resamples it to 16 kHz, and streams it to the GPU server.
+      A reply ends after 1.0 s with no new audio; a barge-in sends <code>flush</code>.</li>
+  <li><b>Tunnel.</b> The audio goes through an SSH tunnel (<code>localhost:8767</code> → pod <code>:8766</code>) kept up by a watchdog.</li>
+  <li><b>Render.</b> The GPU server cuts the audio into 1.12 s chunks. FlashHead Pro renders 28 frames per chunk in about 0.77 s.
+      Between replies it renders silence, which gives natural idle motion.</li>
+  <li><b>Frames back.</b> Each frame (JPEG, quality 70) is paired with its 40 ms of audio and sent at a steady 25 fps on the same link.</li>
+  <li><b>Playback.</b> snow_call relays each frame unchanged to the call's socket.io room. The page schedules the audio back to back and draws each
+      frame exactly when its audio starts, so lips match the voice.</li>
+</ol>
+
+<h2>3. Timing of one turn</h2>
+<figure>
+<svg viewBox="0 0 1100 230" width="100%" role="img" aria-label="Turn timeline">
+  <line x1="60" y1="170" x2="1060" y2="170" stroke="#3e4c59" stroke-width="1.5"/>
+  <!-- scale: 200 px per second, 0 at x=60 -->
+  <g font-size="11" fill="#52606d" text-anchor="middle">
+    <line x1="60" y1="166" x2="60" y2="176" stroke="#3e4c59"/><text x="60" y="192">0 s</text>
+    <line x1="260" y1="166" x2="260" y2="176" stroke="#3e4c59"/><text x="260" y="192">1 s</text>
+    <line x1="460" y1="166" x2="460" y2="176" stroke="#3e4c59"/><text x="460" y="192">2 s</text>
+    <line x1="660" y1="166" x2="660" y2="176" stroke="#3e4c59"/><text x="660" y="192">3 s</text>
+    <line x1="860" y1="166" x2="860" y2="176" stroke="#3e4c59"/><text x="860" y="192">4 s</text>
+    <line x1="1060" y1="166" x2="1060" y2="176" stroke="#3e4c59"/><text x="1060" y="192">5 s</text>
+  </g>
+  <rect x="60" y="40" width="300" height="34" rx="5" fill="#eef7ee" stroke="#3f8f4f"/>
+  <text x="210" y="62" text-anchor="middle" font-size="12">agent LLM + TTS (median 1.5 s)</text>
+  <rect x="360" y="84" width="152" height="34" rx="5" fill="#fdf2e6" stroke="#c77d2a"/>
+  <text x="436" y="100" text-anchor="middle" font-size="11">wait for idle render</text>
+  <text x="436" y="113" text-anchor="middle" font-size="10" fill="#52606d">+ first chunk 0.77 s</text>
+  <rect x="512" y="84" width="152" height="34" rx="5" fill="#fdf2e6" stroke="#c77d2a"/>
+  <text x="588" y="100" text-anchor="middle" font-size="11">network + queue</text>
+  <text x="588" y="113" text-anchor="middle" font-size="10" fill="#52606d">≈2.2 s total to first frame</text>
+  <rect x="804" y="84" width="100" height="34" rx="5" fill="#e8f1fb" stroke="#3b82c4"/>
+  <text x="854" y="105" text-anchor="middle" font-size="11">browser 0.5 s</text>
+  <rect x="904" y="128" width="156" height="30" rx="5" fill="#3b82c4"/>
+  <text x="982" y="148" text-anchor="middle" font-size="12" fill="#fff" font-weight="600">nurse speaks ≈4.2 s</text>
+  <text x="60" y="28" font-size="12" fill="#52606d">0 = snow has the patient's final transcript</text>
+  <path d="M664,101 L804,101" stroke="#c77d2a" stroke-width="1.2" stroke-dasharray="4 3"/>
+</svg>
+<figcaption>Approximate budget from measured parts. The 1.5 s is the median over 26 turns (p90 2.2 s). The 2.2 s to the first frame was measured through the tunnel (1.9 s on the pod). The 0.5 s is the browser jitter buffer from the demo link. Sum: about 4.2 s.</figcaption>
+</figure>
+<p>The avatar adds about 2.7 s to snow's usual turn latency: about 2.2 s to the first frame, plus the 0.5 s browser buffer.
+Snow's own (muted) playback of the agent voice is delayed by the same amount (<code>avatar_delay_ms=2550</code>), so snow's turn-taking
+follows what the patient actually hears.</p>
+
+<h2>4. Components</h2>
+<table>
+  <tr><th>Component</th><th>Where</th><th>Role</th></tr>
+  <tr><td>Demo page and avatar panel</td><td>snow <code>demo_portal/src/views/call_dev/AvatarPanel.tsx</code>, <code>services/AvatarPlayer.ts</code>, hooks in <code>CallManager.ts</code>, <code>AudioHandler.ts</code>, <code>CallDevDialerView.tsx</code></td>
+      <td>Plays frames in sync with their audio. Shows the live canvas, with the idle clip only as a fallback. Mutes snow's own voice, and unmutes it if the GPU link is down.</td></tr>
+  <tr><td>Avatar forwarder</td><td>snow <code>devtools/avatar_forwarder.py</code> (registered in <code>snow_devtools_main.py</code>)</td>
+      <td>Sends the agent audio to the GPU server and relays the frames back. Handles reply end and barge-in, reconnects, and sends the link status. Logs timing per reply and per frame burst.</td></tr>
+  <tr><td>GPU server</td><td>SoulX-FlashHead fork <code>avatar_demo/demo/gpu_server.py</code>, <code>playback_buffer.py</code>, <code>audio_chunker.py</code>, <code>avatar_engine.py</code>, <code>wire.py</code></td>
+      <td>Runs FlashHead Pro live, serves one client at a time, renders idle motion between replies, and sends at 25 fps.</td></tr>
+  <tr><td>FlashHead</td><td>SoulX-FlashHead fork, branch <code>yuntang/nurse-avatar-demo</code></td><td>The talking-head model. The fork adds env switches for the attention kernel and compile options.</td></tr>
+  <tr><td>GPU cluster config</td><td><code>avatar_demo/configs/skypilot_avatar_h200_cw_usw4_speech.yaml</code></td><td>1× H200, 16+ CPUs and 64+ GB, on the reserved node; installs and starts the server.</td></tr>
+  <tr><td>Ops scripts</td><td><code>avatar_demo/ops/</code>: <code>start_services.sh</code>, <code>start_snow.sh</code>, <code>gpu_tunnel.sh</code>, <code>net_probe.sh</code>, <code>demo_settings.sh</code>, <code>demo_url.txt</code></td>
+      <td>Postgres and Redis; snow with the demo environment; the tunnel watchdog; a network probe; DB snapshot and restore; the demo links.</td></tr>
+</table>
+
+<h2>5. Key design decisions</h2>
+<ul>
+  <li><b>Audio travels inside the video frames.</b> Every frame carries its own 40 ms of audio, and the browser draws a frame when its audio starts playing.
+      Lip sync then survives any network jitter, because voice and video can't drift apart.</li>
+  <li><b>Snow's own voice stays on, but muted and delayed.</b> Snow's turn-taking relies on playback acknowledgements from the browser, so its copy keeps playing silently,
+      delayed to match the avatar. Without the delay, the nurse's voice leaking into the mic looked like barge-ins (18 VAD cancels in 2 minutes).</li>
+  <li><b>Live idle motion (H200 only).</b> The GPU renders silence between replies, keeping about 1 s buffered. When a reply starts, only the next 0.25 s of idle is kept,
+      so replies aren't delayed and motion stays continuous. Settings: <code>AVATAR_IDLE_TARGET_S=1.0</code>, <code>AVATAR_IDLE_KEEP_S=0.25</code>.
+      The target must exceed the 0.77 s render time; 0.5 s ran dry at 21.8 fps.</li>
+  <li><b>A reply ends after 1.0 s without audio.</b> TTS delivers a turn in bursts 0.5–0.7 s apart. A shorter gap split turns and padded silence mid-sentence.</li>
+  <li><b>One GPU client at a time.</b> A new connection replaces the old one, and the forwarder ignores calls that have ended. A stale link once shared the frames,
+      leaving each stream every other frame.</li>
+  <li><b>Graceful degradation.</b> If the GPU link drops, the page unmutes snow's own voice and the call continues voice-only. The forwarder reconnects with backoff
+      (0.5 to 5 s) and the tunnel watchdog reopens the tunnel.</li>
+</ul>
+
+<h2>6. Demo settings</h2>
+<table>
+  <tr><th>Setting</th><th>Value</th></tr>
+  <tr><td>Agent</td><td>Stacy (<code>240330eb-8274-405c-86b1-931203191157</code>)</td></tr>
+  <tr><td>Script</td><td>"[Demo] Simplified Discharge: CHF — thinkv3, Engines Off" (<code>67a8386a…</code>), version <code>v1.617.1-27-g997197dce</code></td></tr>
+  <tr><td>Patient</td><td>Jane Anderson, date of birth October 8, 1950</td></tr>
+  <tr><td>Voice / TTS</td><td>ElevenLabs <code>eleven_v3_conversational</code>, voice <code>BzE3m5hwd6OqXT6Gg2Vg</code>, speed 1.13</td></tr>
+  <tr><td>ASR</td><td>Context-aware ASR v3 (<code>eval-api.model.hippocraticai.com/asrv3/v1</code>)</td></tr>
+  <tr><td>Demo link</td><td><code>demo_url.txt</code> line 2: <code>…&amp;avatar=1&amp;avatar_delay_ms=2550&amp;avatar_jitter_ms=500</code></td></tr>
+  <tr><td>Snow environment</td><td><code>MAX_ENGINE_SYNC_TIMEOUTS_ALLOWED=5</code>, <code>AVATAR_GPU_WS_URL=ws://127.0.0.1:8767</code>, <code>AVATAR_PREBUFFER_S=0.3</code>, <code>AVATAR_REPLY_GAP_S=1.0</code></td></tr>
+  <tr><td>GPU server environment</td><td><code>AVATAR_JPEG_QUALITY=70</code>, <code>AVATAR_IDLE_TARGET_S=1.0</code>, <code>AVATAR_IDLE_KEEP_S=0.25</code></td></tr>
+</table>
+<p>The link picks <i>which</i> agent, script and patient to use. Their contents (voice, TTS model, script version) live in the local DB,
+and <code>./demo_settings.sh restore</code> puts them back after <code>make sync-data</code>.</p>
+
+<h2>7. Running it</h2>
+<ol>
+  <li><b>Mac, after any <code>colima start</code>:</b> set the VM's default route through <code>col0</code> and its MTU to 1280 (<code>runbook.md</code> step 0).</li>
+  <li><b>Container:</b> run <code>start_services.sh</code> (Postgres, Redis).</li>
+  <li><b>GPU:</b> check that <code>yuntang-avatar-h200</code> is up and its server job is listening (<code>sky … --config active_workspace=speech</code>).</li>
+  <li><b>Tunnel:</b> <code>./gpu_tunnel.sh yuntang-avatar-h200</code>, then a smoke test with <code>demo/test_client.py</code> (expect about 25 fps).</li>
+  <li><b>Snow and UI:</b> run <code>./start_snow.sh</code>.</li>
+  <li><b>Mac:</b> open demo link 2 and click <b>Start Call</b> once.</li>
+</ol>
+<p>Full details are in <code>avatar_demo/docs/runbook.md</code> in the SoulX-FlashHead fork. The network background is in <code>network_and_frame_drops.md</code>.</p>
+
+<h2>8. Measured performance</h2>
+<table>
+  <tr><th>Measure</th><th>1× H200 (demo)</th><th>2× RTX Pro 6000 (tested)</th></tr>
+  <tr><td>Render time per 1.12 s chunk</td><td>0.773 s (1.45× real time)</td><td>about 1.13 s (about 1.0×)</td></tr>
+  <tr><td>Frame delivery through the tunnel</td><td>24.4–25.0 fps</td><td>24.4–24.7 fps</td></tr>
+  <tr><td>First frame after a reply starts</td><td>2.2 s (1.9 s on the pod)</td><td>2.5 s</td></tr>
+  <tr><td>Largest gap between frames (tunnel)</td><td>0.22–0.35 s (absorbed by the 500 ms buffer)</td><td>0.08–0.16 s</td></tr>
+  <tr><td>Live idle motion</td><td>yes (about 70% GPU duty)</td><td>no headroom; idle clip instead</td></tr>
+  <tr><td>Bandwidth</td><td colspan="2">3.8 Mbit/s at JPEG quality 70 (5.6 at 85)</td></tr>
+</table>
+<p>A 27-minute demo call on the H200 with live idle ran as one unbroken frame stream: no reconnects, no flushes, and no gap of 1 s or more.</p>
+
+<h2>9. Issues found and fixed</h2>
+<table>
+  <tr><th>Symptom</th><th>Root cause</th><th>Fix</th></tr>
+  <tr><td>Call ended with "technical difficulties"</td><td>Colima's user-mode NAT dropped TCP connections. A safety engine timed out, and snow ends the call on the first timeout.</td>
+      <td><code>colima start --network-address</code> with the route via vzNAT (<code>col0</code>); <code>MAX_ENGINE_SYNC_TIMEOUTS_ALLOWED=5</code></td></tr>
+  <tr><td><code>sky</code> and large transfers hung</td><td>The vzNAT path into Tailscale has MTU 1280; 1500-byte packets were silently dropped</td><td><code>ip link set col0 mtu 1280</code></td></tr>
+  <tr><td>Choppy video and voice (every other frame missing)</td><td>A stale avatar link from an ended call shared the GPU server's frames</td><td>One client at a time; the forwarder ignores ended calls</td></tr>
+  <tr><td>Avatar stuck on the idle clip</td><td>The SSH tunnel through the SkyPilot proxy dropped</td><td><code>gpu_tunnel.sh</code> watchdog</td></tr>
+  <tr><td>Nurse paused mid-sentence</td><td>TTS bursts 0.5–0.7 s apart; a 0.4 s reply gap split turns and padded silence</td><td><code>AVATAR_REPLY_GAP_S=1.0</code></td></tr>
+  <tr><td>Pose jump at every turn</td><td>Crossfading between the pre-rendered idle clip and live frames</td><td>Live idle rendering on the H200</td></tr>
+</table>
+
+<h2>10. Known limits</h2>
+<ul>
+  <li><b>Latency.</b> The avatar adds about 2.7 s per turn, about 4 s from the patient's last word to the nurse's first word.</li>
+  <li><b>One call at a time.</b> The GPU server holds one conversation session.</li>
+  <li><b>Network settings don't persist.</b> The Colima route and MTU are lost on a Colima restart, unless the provision script in <code>network_and_frame_drops.md</code> is installed.</li>
+  <li><b>Live idle needs a fast GPU.</b> It's an H200 feature. On 2× RTX the page falls back to the idle clip between replies.</li>
+  <li><b>Demo-only code.</b> All of this is local and off by default. Nothing runs unless <code>AVATAR_GPU_WS_URL</code> is set and the page has <code>?avatar=1</code>.</li>
+</ul>
+
+<p class="note">The reserved H200 node (<code>gd942bc</code>, cw-usw4) has a reservation label and taint. Remove both when the demo ends,
+using the two <code>kubectl</code> commands in the cluster config's header.</p>
+
+</main>
+</body>
+</html>
