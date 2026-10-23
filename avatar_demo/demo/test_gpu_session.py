@@ -196,6 +196,75 @@ class BargeInFlushTest(unittest.TestCase):
         self.assertEqual(self.s.buffer._speech_buffered, 0)  # the old call's speech never reaches it
 
 
+class ListeningNodSessionTest(unittest.TestCase):
+    """AVATAR_LISTEN_NODS=1: the sender warps idle frames into a nod while the patient talks a lot."""
+
+    class StubWarp:
+        def __init__(self):
+            self.amounts = []
+
+        def apply(self, frame, amount):
+            self.amounts.append(amount)
+            return frame + 1  # a different array, so the test can see it was warped
+
+    def make(self, nods_on: bool):
+        import gpu_server
+
+        saved = gpu_server.LISTEN_NODS
+        gpu_server.LISTEN_NODS = nods_on
+        self.addCleanup(setattr, gpu_server, "LISTEN_NODS", saved)
+        chunker = AudioChunker("pro")
+        s = Session(StreamingAvatarEngine(chunker, lambda w: w, fake_model, motion_frames_num=MOTION), chunker)
+        if nods_on:
+            s.nod_warp = self.StubWarp()
+        return s
+
+    @staticmethod
+    def drive(s, start, seconds, audio):
+        frame = np.zeros((4, 4, 3), dtype=np.uint8)
+        out = []
+        t = start
+        while t < start + seconds:
+            out.append(s.nod_frame(frame, audio, t) is not frame)
+            t += 0.04
+        return out, t
+
+    def test_off_by_default_changes_nothing(self):
+        s = self.make(False)
+        s.listening_event("listen", True, 0.0)
+        warped, _ = self.drive(s, 0.0, 10.0, np.zeros(640, dtype=np.float32))
+        self.assertFalse(any(warped))
+
+    def test_nods_after_a_long_answer_but_never_on_speech_frames(self):
+        s = self.make(True)
+        silent = np.zeros(640, dtype=np.float32)
+        s.listening_event("listen", True, 0.0)
+        warped, t = self.drive(s, 0.0, 6.0, silent)  # 6 s of patient speech
+        self.assertFalse(any(warped))
+        s.listening_event("pause", False, t)
+        warped, t = self.drive(s, t, 1.0, silent)
+        self.assertTrue(any(warped))  # nod at the pause
+        self.assertTrue(all(0 < a <= 1 for a in s.nod_warp.amounts))
+
+        s = self.make(True)
+        speech = np.full(640, 0.2, dtype=np.float32)  # frames carrying the nurse's voice
+        s.listening_event("listen", True, 0.0)
+        _, t = self.drive(s, 0.0, 6.0, silent)
+        s.listening_event("pause", False, t)
+        warped, _ = self.drive(s, t, 1.0, speech)
+        self.assertFalse(any(warped))
+
+    def test_a_new_call_starts_a_fresh_turn(self):
+        s = self.make(True)
+        silent = np.zeros(640, dtype=np.float32)
+        s.listening_event("listen", True, 0.0)
+        _, t = self.drive(s, 0.0, 6.0, silent)
+        s.start(prebuffer_s=0.0)  # the next call
+        s.listening_event("pause", False, t)
+        warped, _ = self.drive(s, t, 1.0, silent)
+        self.assertFalse(any(warped))
+
+
 def audio_level(audio):
     return np.abs(audio).max()
 

@@ -42,6 +42,12 @@ envs:
   # 21.8 fps); a reply keeps only AVATAR_IDLE_KEEP_S of queued idle ahead of it.
   AVATAR_IDLE_TARGET_S: "1.0"
   AVATAR_IDLE_KEEP_S: "0.25"
+  # Active listening: nod (2D overlay) while the patient talks a lot: not before 5 s of patient speech
+  # in a turn, then at pauses and every 5-8 s. Needs snow's forwarder to send listen/pause/agent_speaking.
+  AVATAR_LISTEN_NODS: "1"
+  AVATAR_NOD_PX: "5"
+  AVATAR_NOD_AFTER_S: "5"
+  AVATAR_NOD_INTERVAL_S: "5,8"
 
 setup: |
   set -e

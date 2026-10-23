@@ -33,17 +33,25 @@ sys.path.insert(0, os.getcwd())
 
 from audio_chunker import AudioChunker  # noqa: E402
 from avatar_engine import StreamingAvatarEngine  # noqa: E402
+from listening import NodScheduler, NodWarp  # noqa: E402
 from playback_buffer import PlaybackBuffer, VIDEO_FPS  # noqa: E402
 from wire import float_to_pcm16, pack_frame, pcm16_to_float  # noqa: E402
 
 # Live idle filler: between replies, render idle motion from silence so the stream never stops,
 # keeping about this many seconds buffered. Needs a GPU faster than real time: on for the H200
-# (1.45x, AVATAR_IDLE_TARGET_S=0.5), off (0) for 2x RTX Pro 6000 (about 1.0x), where the client
+# (1.45x, AVATAR_IDLE_TARGET_S=1.0), off (0) for 2x RTX Pro 6000 (about 1.0x), where the client
 # shows its pre-rendered idle clip between replies instead.
 IDLE_TARGET_S = float(os.environ.get("AVATAR_IDLE_TARGET_S", "0"))
 # Must exceed one chunk's render time (0.77 s on the H200), or the buffer runs dry while the next
 # idle chunk renders. When a reply starts, only this much queued idle is kept ahead of it:
 IDLE_KEEP_S = float(os.environ.get("AVATAR_IDLE_KEEP_S", "0.25"))
+# Active listening: nod while the patient talks a lot (listening.py). Driven by the client's
+# "listen" / "pause" / "agent_speaking" messages (snow's forwarder); off unless AVATAR_LISTEN_NODS=1.
+LISTEN_NODS = os.environ.get("AVATAR_LISTEN_NODS", "0") == "1"
+NOD_PX = float(os.environ.get("AVATAR_NOD_PX", "5"))
+NOD_AFTER_S = float(os.environ.get("AVATAR_NOD_AFTER_S", "5"))
+NOD_INTERVAL_S = tuple(float(v) for v in os.environ.get("AVATAR_NOD_INTERVAL_S", "5,8").split(","))
+SPEECH_PEAK = 300 / 32768  # a frame whose audio peaks above this carries the nurse's speech: never nod it
 DEBUG = bool(os.environ.get("GPU_SERVER_DEBUG"))
 # 85 was about 6 Mbit/s over the SSH proxy and Tailscale; 70 is about 4 (see runbook).
 JPEG_QUALITY = int(os.environ.get("AVATAR_JPEG_QUALITY", "70"))
@@ -108,7 +116,35 @@ class Session:
         self.speaking = False  # True from speech until "end"; idle filler must not block speech renders
         self.reset_requested = False  # done by the render thread, so collectives stay on one thread
         self.flush_gen = 0  # bumped by flush/start/stop; a chunk rendered across one is discarded
+        # Nods live on the asyncio thread only (client messages and the sender), so they need no lock.
+        self.nod_warp = NodWarp(px=NOD_PX) if LISTEN_NODS else None
+        self.nods = self._new_nods()
         self.chunk_seconds = chunker.chunk_samples / chunker.sample_rate
+
+    @staticmethod
+    def _new_nods():
+        return NodScheduler(after_s=NOD_AFTER_S, interval_s=NOD_INTERVAL_S) if LISTEN_NODS else None
+
+    # --- active listening (asyncio thread) ---
+    def listening_event(self, kind: str, on: bool, now: float) -> None:
+        """Client messages "listen" / "pause" / "agent_speaking" from snow's forwarder."""
+        if self.nods is None:
+            return
+        if kind == "listen":
+            self.nods.set_listening(on, now)
+        elif kind == "pause":
+            self.nods.pause(now)
+        elif kind == "agent_speaking":
+            self.nods.set_agent_speaking(on, now)
+
+    def nod_frame(self, frame: np.ndarray, audio: np.ndarray, now: float) -> np.ndarray:
+        """The frame to send at `now`: with the listening nod applied while one plays."""
+        if self.nods is None:
+            return frame
+        amount = self.nods.amount(now)
+        if amount <= 0.0 or (audio.size and float(np.abs(audio).max()) > SPEECH_PEAK):
+            return frame  # no nod on frames where the nurse is speaking
+        return self.nod_warp.apply(frame, amount)
 
     # --- client-driven state changes (called from the asyncio thread) ---
     def push_speech(self, pcm: np.ndarray) -> None:
@@ -131,6 +167,8 @@ class Session:
             self.buffer.flush()
             self.flush_gen += 1
             self.reset_requested = True
+        if self.nods is not None:
+            self.nods.flush(time.monotonic())
 
     def start(self, prebuffer_s: float) -> None:
         with self.lock:
@@ -139,6 +177,7 @@ class Session:
             self.active = True
             self.reset_requested = True
             self.flush_gen += 1  # a chunk still rendering belongs to the previous call
+        self.nods = self._new_nods()  # a new call: no carried-over turn state
 
     def stop(self) -> None:
         with self.lock:
@@ -226,7 +265,8 @@ async def sender(ws, session: Session) -> None:
         was_playing = item is not None
         if item is not None:
             frame, audio = item
-            await ws.send(pack_frame(encode_jpeg(np.asarray(frame)), float_to_pcm16(audio)))
+            frame = session.nod_frame(np.asarray(frame), audio, time.monotonic())
+            await ws.send(pack_frame(encode_jpeg(frame), float_to_pcm16(audio)))
         next_t += tick
         await asyncio.sleep(max(0.0, next_t - time.monotonic()))
 
@@ -256,6 +296,8 @@ async def handle(ws, session: Session) -> None:
                 session.start(float(cmd.get("prebuffer_s", 0.0)))
             elif kind == "end":
                 session.end_speech()
+            elif kind in ("listen", "pause", "agent_speaking"):
+                session.listening_event(kind, bool(cmd.get("on", False)), time.monotonic())
             elif kind == "flush":
                 session.flush()
                 # Every frame sent before this is the interrupted reply; the client drops those. The sender
