@@ -107,7 +107,7 @@ class Session:
         self.active = False  # set by the client's "start"; nothing is sent before that
         self.speaking = False  # True from speech until "end"; idle filler must not block speech renders
         self.reset_requested = False  # done by the render thread, so collectives stay on one thread
-        self.flush_gen = 0  # bumped by flush(); a chunk rendered across a flush is discarded
+        self.flush_gen = 0  # bumped by flush/start/stop; a chunk rendered across one is discarded
         self.chunk_seconds = chunker.chunk_samples / chunker.sample_rate
 
     # --- client-driven state changes (called from the asyncio thread) ---
@@ -138,6 +138,7 @@ class Session:
             self.buffer = new_buffer(prebuffer_s)
             self.active = True
             self.reset_requested = True
+            self.flush_gen += 1  # a chunk still rendering belongs to the previous call
 
     def stop(self) -> None:
         with self.lock:
@@ -145,6 +146,7 @@ class Session:
             self.chunker.flush()
             self.buffer = new_buffer()
             self.active = False
+            self.flush_gen += 1
 
     def pop_frame(self):
         with self.lock:

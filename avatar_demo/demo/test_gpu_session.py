@@ -185,6 +185,17 @@ class BargeInFlushTest(unittest.TestCase):
         self.assertEqual(max(self.s.engine.audio_dq), 0.0)  # next video is conditioned on silence
 
 
+    def test_chunk_rendering_across_a_new_call_is_discarded(self):
+        # e.g. the forwarder reconnects mid-reply and sends "start" while a speech chunk renders
+        c = self.s.chunker.chunk_samples
+        self.render_started.clear()
+        self.s.push_speech(np.ones(c, dtype=np.float32) * 0.25)
+        self.assertTrue(self.render_started.wait(2.0))
+        self.s.start(prebuffer_s=0.0)  # the next call
+        time.sleep(0.8)
+        self.assertEqual(self.s.buffer._speech_buffered, 0)  # the old call's speech never reaches it
+
+
 def audio_level(audio):
     return np.abs(audio).max()
 
