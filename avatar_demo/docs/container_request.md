@@ -66,4 +66,4 @@ These were installed by hand on 2026-10-21 and are lost on rebuild. Use the Dock
 
 ## After the container restarts or is rebuilt
 
-Follow `TODO.md`, section "Restart checklist".
+Follow `runbook.md`, steps 0–5.
